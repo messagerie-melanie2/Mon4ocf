@@ -78,6 +78,7 @@ class MemcacheControlReplic(MemcacheControl):
                     node_state = self.mc.get(node)
                     if not node_state or node_state in self.state_no_send:
                         nb_replic_broken += 1
+                        if self.debug: syslog.syslog(syslog.LOG_INFO, 'replic seems also broken on {}: node_state={}, nb_replic_broken={}, max_node_replic_broken={}'.format(node, node_state, nb_replic_broken, self.max_node_replic_broken))
 
             if nb_replic_broken < self.max_node_replic_broken:
                 # nb_replic_broken < self.max_node_replic_broken

@@ -125,45 +125,86 @@ class Mon4ocf(object):
                 syslog.syslog(syslog.LOG_WARNING,  'send_data: problem when closing connexion')
 
     ########################################
-    def get_pid(self, binfile, warn_ppid_not_init=False):
-        if self.debug: syslog.syslog(syslog.LOG_DEBUG, 'get_pid: search {}'.format(binfile))
+    def get_pids(self, binfile, ppid=1, warn_ppid_not_ok=False, raise_ppid_not_ok=False, number_of_process=1):
+        '''
+        if ppid is None => don't check ppid
+        if number_of_process => don't check'
+        raise_ppid_not_ok=True implie warn_ppid_not_ok=True
+        '''
+        if self.debug: syslog.syslog(syslog.LOG_DEBUG, 'get_pids: search {} with ppid={}, warn_ppid_not_ok={}, raise_ppid_not_ok={}, number_of_process={}'.format(binfile, ppid, warn_ppid_not_ok, raise_ppid_not_ok, number_of_process))
         try:
-            if self.debug: syslog.syslog(syslog.LOG_DEBUG, 'get_pid: doing process_iter')
+            if self.debug: syslog.syslog(syslog.LOG_DEBUG, 'get_pids: doing process_iter')
             ret = []
             allprocess = psutil.process_iter()
         except psutil.NoSuchProcess:
-            syslog.syslog(syslog.LOG_ERR, 'get_pid: NoSuchProcess error during psutil.process_iter')
+            syslog.syslog(syslog.LOG_ERR, 'get_pids: NoSuchProcess error during psutil.process_iter')
             raise
         except psutil.AccessDenied:
-            syslog.syslog(syslog.LOG_ERR, 'get_pid: AccessDenied error during psutil.process_iter')
+            syslog.syslog(syslog.LOG_ERR, 'get_pids: AccessDenied error during psutil.process_iter')
             raise
         except psutil.TimeoutExpired:
-            syslog.syslog(syslog.LOG_ERR, 'get_pid: TimeoutExpired error during psutil.process_iter')
+            syslog.syslog(syslog.LOG_ERR, 'get_pids: TimeoutExpired error during psutil.process_iter')
             raise
         except:
-            syslog.syslog(syslog.LOG_ERR, 'get_pid: unknown error during psutil.process_iter')
+            syslog.syslog(syslog.LOG_ERR, 'get_pids: unknown error during psutil.process_iter')
             raise
         else:
-            if self.debug: syslog.syslog(syslog.LOG_DEBUG,  'get_pid: searching slapd process')
+            if self.debug: syslog.syslog(syslog.LOG_DEBUG,  'get_pids: searching process')
             for proc in allprocess:
-                if psutil.pid_exists(proc.pid) and binfile in proc.cmdline() and proc.ppid() == 1:
-                    if self.debug: syslog.syslog(syslog.LOG_DEBUG,  'get_pid: pid found with cdmdline={} pid={} ppid={}'.format(proc.cmdline(),proc.pid, proc.ppid()))
-                    ret.append(proc.pid)
-                elif warn_ppid_not_init and binfile in proc.cmdline():
-                    syslog.syslog(syslog.LOG_WARN, 'get_pid: {} ppid ist not init,cdmdline={} pid={} ppid={}'.format(proc.cmdline(),proc.pid, proc.ppid()))
+                if psutil.pid_exists(proc.pid) and binfile in proc.cmdline()[:2]:
+                    if ppid is None:
+                        if self.debug: syslog.syslog(syslog.LOG_DEBUG,  'get_pids: pid found with cdmdline={} pid={}'.format(proc.cmdline(),proc.pid))
+                        ret.append(proc.pid)
+                    else:
+                        if psutil.pid_exists(proc.pid) and proc.ppid() == ppid:
+                            if self.debug: syslog.syslog(syslog.LOG_DEBUG,  'get_pids: pid found with cdmdline={} pid={} ppid={}'.format(proc.cmdline(),proc.pid, proc.ppid()))
+                            ret.append(proc.pid)
+                        else:
+                            if raise_ppid_not_ok:
+                                msg = 'get_pids: for cdmdline={} ppid is not {},pid={} ppid={}'.format(proc.cmdline(), ppid, proc.pid, proc.ppid())
+                                syslog.syslog(syslog.LOG_INFO, msg)
+                                raise Mon4ocfError(1, msg)
+                            elif warn_ppid_not_ok:
+                                syslog.syslog(syslog.LOG_WARN, 'get_pids: for cdmdline={} ppid ist not {},pid={} ppid={}'.format(proc.cmdline(), ppid, proc.pid, proc.ppid()))
             if len(ret) == 0:
                 msg = '{} not started'.format(binfile)
                 syslog.syslog(syslog.LOG_INFO, msg)
                 raise Mon4ocfError(1, msg)
-            if len(ret) > 2:
-                msg = 'More than a {} process'.format(binfile)
-                syslog.syslog(syslog.LOG_ERR, msg)
-                raise Mon4ocfError(1, msg)
+            if number_of_process:
+                if len(ret) < number_of_process:
+                    msg = 'Less than {} {} process'.format(number_of_process, binfile)
+                    syslog.syslog(syslog.LOG_ERR, msg)
+                    raise Mon4ocfError(1, msg)
+                elif len(ret) > number_of_process:
+                    msg = 'More than {} {} process'.format(number_of_process, binfile)
+                    syslog.syslog(syslog.LOG_ERR, msg)
+                    raise Mon4ocfError(1, msg)
             else:
-                if self.debug: syslog.syslog(syslog.LOG_DEBUG,  'get_pid: {}'.format('pid={}'.format(ret[0]) if ret else 'pid not found'))
+                if self.debug: syslog.syslog(syslog.LOG_DEBUG,  'get_pids: {}'.format('pids={}'.format(ret) if ret else 'pid not found'))
 
-            if self.debug: syslog.syslog(syslog.LOG_DEBUG,  'get_pid: fin {}'.format(ret[0]))
-            return ret[0]
+            if self.debug: syslog.syslog(syslog.LOG_DEBUG,  'get_pids: fin {}'.format(ret))
+            return ret
+
+    ########################################
+    def is_process_just_start_pid(self, pid, start_delay):
+        '''
+        return True if start since less or equal than start_delay
+        return False if start since more than start_delay
+        raise if not start
+        start_delay in seconds
+        '''
+        if self.debug: syslog.syslog(syslog.LOG_DEBUG, 'is_process_just_start_pid : verifying {}'.format(pid))
+        try:
+            if psutil.pid_exists(pid):
+                p = psutil.Process(pid)
+        except:
+            if self.debug: syslog.syslog(syslog.LOG_ERR, 'is_process_just_start_pid error : pid {} does not exits...'.format(pid))
+            raise
+        else:
+            if time.time() <= p.create_time() + start_delay:
+                return True
+            else:
+                return False
 
     ########################################
     def is_process_just_start(self, binfile, start_delay):
@@ -174,25 +215,12 @@ class Mon4ocf(object):
         start_delai in seconds
         '''
         if self.debug: syslog.syslog(syslog.LOG_DEBUG, 'is_process_just_start')
-        
         try:
-            pid = self.get_pid(binfile)
+            pid = self.get_pids(binfile)[0]
         except:
             raise
         else:
-            if self.debug: syslog.syslog(syslog.LOG_DEBUG, 'is_process_just_start : verifying {}'.format(pid))
-            try:
-                if psutil.pid_exists(pid):
-                    p = psutil.Process(pid)
-            except:
-                if self.debug: syslog.syslog(syslog.LOG_ERR, 'is_process_just_start error : pid {} does not exits anymore... should never happen'.format(pid))
-                raise
-            else:
-                if time.time() <= p.create_time() + start_delay:
-                    return True
-                else:
-                    return False
-                
+            return self.is_process_just_start_pid(pid, start_delay)
     
     ########################################
     def ldap_error_string(self, str,  err):

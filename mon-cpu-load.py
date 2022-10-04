@@ -26,7 +26,7 @@ from mon4ocf import Mon4ocfError, Mon4ocf
 
 
 ################################################################################
-class MonChargeLdapma(Mon4ocf):
+class MonCpuLoad(Mon4ocf):
     ########################################
     def __init__(self):
         args = self.parse_all_args()
@@ -44,7 +44,7 @@ class MonChargeLdapma(Mon4ocf):
         parser.add_argument('-m', '--maxload', help='max load authorized. defaul=500', action='store', metavar='CHARGE', default='500',  type=int)
         parser.add_argument('-n', '--nbmon', help='number of point to calculate avergae load. defaut=1800',  metavar='NB_MON',  default='1800',  type=int)
         parser.add_argument('-i', '--interval', help='inteval in secondes in each monitoring. defaut=1',  metavar='INTERVAL',  default='1',  type=int)
-        parser.add_argument('-b', '--binfile', help='openldap binary file',  metavar='BINFILE', required=True)
+        parser.add_argument('-b', '--binfile', help='binary file',  metavar='BINFILE', required=True)
         parser.add_argument('-s', '--socket', help='socket for writing result. defaut=/var/run/moncharge/socket/mon',  metavar='SOCKET',  default='/var/run/moncharge/socket/mon')
         parser.add_argument('-d', '--debug', help='mode debug on',  action='store_true')
         return parser.parse_args()
@@ -72,7 +72,7 @@ class MonChargeLdapma(Mon4ocf):
                 while not pid:
                     if self.debug: syslog.syslog(syslog.LOG_DEBUG,  'monitor: waiting for processus start')
                     try:
-                        pid = self.get_pid(self.binfile)
+                        pid = self.get_pids(self.binfile)[0]
                     except:
                         pass
                     finally:
@@ -132,6 +132,6 @@ if __name__ == '__main__':
         print ('you must be root')
         sys.exit(1)
     
-    mcl = MonChargeLdapma()
+    mcl = MonCpuLoad()
     mcl.run_thread()
     
